@@ -12,15 +12,40 @@ install.packages("wordcloud")
 install.packages("rtweet")
 install.packages("igraph")
 install.packages("graphTweets")
-
 ```
 
-
-
+First, access to Twitter with the token created using the developer account info
 
 ```{r}
+source('twitterAuth.R')
 
+create_token(
+  app = twitter_app,
+  consumer_key = api_key,
+  consumer_secret = api_secret,
+  access_token = access_token,
+  acces_secret = access_token_secret)
 ```
+
+Request for 18000 tweets
+
+```{r}
+covid_non_media_tweets <- search_tweets(q = '-filter:replies -filter:verified filter:media covid pandemic quarantine pcr "covid testing"', type = "recent", n = 18000, include_rts = FALSE)
+
+covid_media_tweets <- search_tweets(q = '-filter:replies filter:verified -filter:media covid pandemic quarantine pcr "covid testing"', type = "recent", n = 18000, include_rts = FALSE)
+```
+
+Take a look at the returned text without personal accounts or html links
+
+```{r}
+covid_media_tweets_txt <- covid_media_tweets$text
+covid_media_tweets_txt <- gsub("@\\w+", "",covid_media_tweets_txt) #without personal accounts
+covid_media_tweets_txt <- gsub("\\bhttp[a-zA-z0-9]*\\b", "",covid_media_tweets_txt) #without html links
+head(covid_media_tweets_txt,10)
+```
+
+
+
 
 
 
