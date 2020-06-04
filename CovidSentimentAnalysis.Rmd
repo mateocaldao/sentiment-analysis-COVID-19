@@ -4,6 +4,29 @@ output: html_notebook
 ---
 
 
+```{r}
+require(sentiment)
+ls("package:sentiment")
+install.packages("tm")
+install.packages("wordcloud")
+install.packages("rtweet")
+install.packages("igraph")
+install.packages("graphTweets")
+
+```
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
 
 
 
