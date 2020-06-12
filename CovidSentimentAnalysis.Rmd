@@ -1,10 +1,14 @@
 ---
 title: "COVID-10 sentiment analysis using Twitter"
+author:   "by Mateo Cerviño"
+date:     "`r Sys.Date()`"
 output: html_notebook
 ---
 
-
+First, installing packages
 ```{r}
+install.packages("~/TextMining/Rstem_0.4-1.tar.gz", repos = NULL, type = "source")
+install_url("http://cran.r-project.org/src/contrib/Archive/sentiment/sentiment_0.2.tar.gz")
 require(sentiment)
 ls("package:sentiment")
 install.packages("tm")
@@ -14,10 +18,27 @@ install.packages("igraph")
 install.packages("graphTweets")
 ```
 
+And load the libraries
+
+```{r}
+# library(twitteR)
+library(rtweet)
+library(wordcloud)
+library(RColorBrewer)
+library(plyr)
+library(ggplot2)
+library(sentiment)
+library(ggplot2)
+library(gridExtra)
+library(wordcloud)
+library(igraph)
+library(graphTweets)
+```
+
+
 First, access to Twitter with the token created using the developer account info
 
 ```{r}
-source('twitterAuth.R')
 
 create_token(
   app = twitter_app,
@@ -30,9 +51,7 @@ create_token(
 Request for 18000 tweets
 
 ```{r}
-covid_non_media_tweets <- search_tweets(q = '-filter:replies -filter:verified filter:media covid pandemic quarantine pcr "covid testing"', type = "recent", n = 18000, include_rts = FALSE)
-
-covid_media_tweets <- search_tweets(q = '-filter:replies filter:verified -filter:media covid pandemic quarantine pcr "covid testing"', type = "recent", n = 18000, include_rts = FALSE)
+covid_media_tweets <- search_tweets(q = '-filter:replies filter:verified -filter:media covid OR pandemic OR quarantine OR pcr OR "covid testing"', type = "recent", n = 8000, include_rts = FALSE)
 ```
 
 Take a look at the returned text without personal accounts or html links
@@ -41,10 +60,212 @@ Take a look at the returned text without personal accounts or html links
 covid_media_tweets_txt <- covid_media_tweets$text
 covid_media_tweets_txt <- gsub("@\\w+", "",covid_media_tweets_txt) #without personal accounts
 covid_media_tweets_txt <- gsub("\\bhttp[a-zA-z0-9]*\\b", "",covid_media_tweets_txt) #without html links
-head(covid_media_tweets_txt,10)
+covid_media_tweets_txt <- gsub("[[:punct:]]", "", covid_media_tweets_txt) #without score
+covid_media_tweets_txt <- gsub("[^a-zA-Z0-9 ]", "", covid_media_tweets_txt) #without non alphanumeric characters
+covid_media_tweets_txt <-  gsub("\\btco[a-zA-Z0-9]*\\b", "", covid_media_tweets_txt) #without tco
+covid_media_tweets_txt <- covid_media_tweets_txt[!is.na(covid_media_tweets_txt)] # without NAs
+covid_media_tweets_txt <- iconv(covid_media_tweets_txt, 'UTF-8', 'ASCII') # without emojis
+covid_media_tweets_txt <- tolower(covid_media_tweets_txt) # all in lower case
+covid_media_tweets_txt <- gsub("[ \t]{2,}", "", covid_media_tweets_txt) # spaces and tabs
+covid_media_tweets_txt <- gsub("^\\s+|\\s+$", "", covid_media_tweets_txt)
+```
+
+Look at the final text
+
+```{r}
+head(covid_media_tweets_txt, 10)
 ```
 
 
+### Emotion classification
+
+Starting classifying emotions with *classify_emotion* using Bayes algorithm
+
+```{r}
+covid_media_tweets_emo <- classify_emotion(covid_media_tweets_txt, algorithm="bayes", prior=1.0)
+```
+
+The function returns 7 columns: anger, disgust, fear, joy, sadness, surprise and best_fit for every file in the document
+
+```{r}
+head(covid_media_tweets_emo)
+```
+
+Save the (BEST_FIT) 
+
+```{r}
+# Save object emotion
+emotion <- covid_media_tweets_emo[, 7]
+
+table(emotion, useNA = 'ifany')
+```
+
+To facilitate the classification, change NAs for unknown
+
+```{r}
+emotion[is.na(emotion)] <- "unknown"
+table(emotion, useNA = 'ifany')
+```
+
+In a graphic 
+
+```{r, fig.align="center"}
+pie <- ggplot(as.data.frame(covid_media_tweets_emo), aes(x = factor(1), fill = factor(BEST_FIT))) +
+ geom_bar(width = 1)
+pie + coord_polar(theta = "y") + labs(title = 'Semtiment COVID')
+```
+
+```{r, fig.align="center"}
+g <- ggplot(as.data.frame(covid_media_tweets_emo), aes(x = BEST_FIT)) +
+ geom_bar() + labs(title = 'Semtiment COVID') + geom_bar(aes(y=..count.., fill=emotion)) +
+      scale_fill_brewer(palette="Dark2")
+g 
+```
+
+Now we take a look at the polarity. We classify the text in four categories
+
+* POS:      Positive
+* NEG:      Negative
+* POS/NEG:  Undefined
+* BEST_FIT: Common
+
+```{r}
+covid_media_tweets_pol <- classify_polarity(covid_media_tweets_txt, algorithm="bayes")
+head(covid_media_tweets_pol, 3)
+```
+
+Create an object with the result, polarity
+
+```{r}
+polarity <- covid_media_tweets_pol[, 4]
+head(polarity)
+```
+
+```{r}
+table(polarity, useNA = 'ifany')
+```
+
+All the info in a dataframe
+
+```{r}
+sentiment_dataframe <- data.frame(text     = covid_media_tweets_txt, 
+                                  emotion  = emotion, 
+                                  polarity = polarity, stringsAsFactors=FALSE)
+head(sentiment_dataframe)
+```
+
+Reorder it
+
+```{r}
+sentiment_dataframe <- within(sentiment_dataframe, emotion <- factor(emotion, levels=names(sort(table(emotion), decreasing=TRUE))))
+head(sentiment_dataframe)
+```
+
+### Graphics
+
+Number of tweets classified by categories
+
+```{r, fig.align="center"}
+ggplot(sentiment_dataframe, aes(x = emotion)) + geom_bar(aes(y = ..count.., fill = emotion)) +
+      scale_fill_brewer(palette = "Dark2") +
+      ggtitle("Sentiment analysis COVID on Twitter") +
+      theme(legend.position="right") + ylab("Number of Tweets") + xlab("Emotion types")
+```
+
+Polarity of tweets
+
+```{r, fig.align="center"}
+ggplot(sentiment_dataframe, aes(x = polarity)) +
+      geom_bar(aes(y = ..count.., fill = polarity)) +
+      scale_fill_brewer(palette = "RdGy") +
+      ggtitle("Sentiment analysis COVID on Twitter") +
+      theme(legend.position="right") + ylab("Number of Tweets") + xlab("Polarity types")
+```
+
+Split the words according to the emotions
+
+```{r}
+covid_media_tweets_emos     <- levels(factor(sentiment_dataframe$emotion))
+n_covid_media_tweets_emos  <- length(covid_media_tweets_emos)
+covid_media_tweets_emo_docs <- rep("", n_covid_media_tweets_emos)
+for (i in 1:n_covid_media_tweets_emos)
+{
+      tmp <- covid_media_tweets_txt[emotion == covid_media_tweets_emos[i]]
+      covid_media_tweets_emo_docs[i] <- paste(tmp, collapse=" ")
+}
+```
+
+```{r}
+head(covid_media_tweets_emos)
+```
+
+Creating a corpus
+
+```{r}
+covid_media_tweets_corpus <- Corpus(VectorSource(covid_media_tweets_txt))
+inspect(covid_media_tweets_corpus[1:10])
+```
+
+Clean it with *tm_map*
+
+```{r}
+# lower case
+corpus_clean <- tm_map(covid_media_tweets_corpus, tolower)
+
+# Without numbers
+corpus_clean <- tm_map(corpus_clean, removeNumbers)
+
+# Without score
+corpus_clean <- tm_map(corpus_clean, removePunctuation)
+
+# Without stopwords
+corpus_clean <- tm_map(corpus_clean, removeWords, stopwords())
+
+# Without blank spaces
+corpus_clean <- tm_map(corpus_clean, stripWhitespace)
+```
+
+Un tdm (Term Document Matrix)
+
+```{r}
+covid_media_tweets_tdm           <- TermDocumentMatrix(covid_media_tweets_corpus, control = list(stopwords = TRUE))
+covid_media_tweets_tdm           <- as.matrix(covid_media_tweets_tdm)
+```
+
+A dtm (Document-Term Matrix)
+
+```{r}
+covid_media_tweets_dtm <- DocumentTermMatrix(covid_media_tweets_corpus, control = list(minWordLength = 1, 
+                                                       stopwords = TRUE))
+inspect(covid_media_tweets_dtm)
+```
+
+Stem
+
+```{r}
+covid_media_tweets_corpus_stem <- tm_map(covid_media_tweets_corpus, stemDocument)
+covid_media_tweets_corpus_stem <- tm_map(covid_media_tweets_corpus_stem, stemCompletion, dictionary = covid_media_tweets_corpus)
+inspect(covid_media_tweets_corpus_stem[1:5])
+```
+
+Frequent terms
+
+```{r}
+head(findFreqTerms(covid_media_tweets_dtm, lowfreq=10), 20)
+```
+
+Words associated to word blood
+
+```{r}
+findAssocs(covid_media_tweets_dtm, 'blood', 0.30)
+```
+
+
+### Word cloud
+
+```{r, fig.align="center"}
+wordcloud(corpus_clean, min.freq = 20, random.order = FALSE)
+```
 
 
 
